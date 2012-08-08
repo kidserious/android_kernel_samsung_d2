@@ -36,7 +36,7 @@ static unsigned int recovery_boot_mode;
 unsigned char bypass_lcd_id;
 static char elvss_value;
 int is_lcd_connected = 1;
-
+int in_early_suspend;
 #ifdef USE_READ_ID
 static char manufacture_id1[2] = {0xDA, 0x00}; /* DTYPE_DCS_READ */
 static char manufacture_id2[2] = {0xDB, 0x00}; /* DTYPE_DCS_READ */
@@ -158,14 +158,14 @@ static void read_reg(char srcReg, int srcLength, char *destBuffer,
 
 	packet_size[0] = (char)srcLength;
 	mipi_dsi_buf_init(&msd.samsung_tx_buf);
-	mipi_dsi_cmds_tx(pMFD, &msd.samsung_tx_buf, &(s6e8aa0_packet_size_cmd),
+	mipi_dsi_cmds_tx(&msd.samsung_tx_buf, &(s6e8aa0_packet_size_cmd),
 			 1);
 
 	show_cnt = 0;
 	for (j = 0; j < loop_limit; j++) {
 		reg_read_pos[1] = read_pos;
 		if (mipi_dsi_cmds_tx
-		    (pMFD, &msd.samsung_tx_buf, &(s6e8aa0_read_pos_cmd),
+		    (&msd.samsung_tx_buf, &(s6e8aa0_read_pos_cmd),
 		     1) < 1) {
 			show_buffer_pos +=
 			    snprintf(show_buffer + show_buffer_pos, 256,
@@ -325,24 +325,18 @@ static int mipi_samsung_disp_send_cmd(struct msm_fb_data_type *mfd,
 		goto unknown_command;
 
 	if (lock) {
-		/* mdp4_dsi_cmd_busy_wait: will turn on dsi clock also */
-		mdp4_dsi_cmd_dma_busy_wait(mfd);
-		mdp4_dsi_blt_dmap_busy_wait(mfd);
 		mipi_dsi_mdp_busy_wait(mfd);
 		/* Added to resolved cmd loss during dimming factory test */
 		mdelay(1);
 
-		mipi_dsi_cmds_tx(mfd, &msd.samsung_tx_buf, cmd_desc, cmd_size);
+		mipi_dsi_cmds_tx(&msd.samsung_tx_buf, cmd_desc, cmd_size);
 
 		mutex_unlock(&mfd->dma->ov_mutex);
 	} else {
-		/* mdp4_dsi_cmd_busy_wait: will turn on dsi clock also */
-		mdp4_dsi_cmd_dma_busy_wait(mfd);
-		mdp4_dsi_blt_dmap_busy_wait(mfd);
 		mipi_dsi_mdp_busy_wait(mfd);
 		/* Added to resolved cmd loss during dimming factory test */
 		mdelay(1);
-		mipi_dsi_cmds_tx(mfd, &msd.samsung_tx_buf, cmd_desc, cmd_size);
+		mipi_dsi_cmds_tx(&msd.samsung_tx_buf, cmd_desc, cmd_size);
 	}
 
 	wake_unlock(&idle_wake_lock);
@@ -710,8 +704,8 @@ end:
 static void mipi_samsung_disp_early_suspend(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd;
-	pr_info("%s", __func__);
-
+	pr_info("%s, disable blt mode", __func__);
+	in_early_suspend = 1;
 #if defined(CONFIG_MIPI_SAMSUNG_ESD_REFRESH)
 	set_esd_disable();
 #endif
@@ -738,6 +732,8 @@ static void mipi_samsung_disp_early_suspend(struct early_suspend *h)
 static void mipi_samsung_disp_late_resume(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd;
+	pr_info("%s, enable blt mode", __func__);
+	in_early_suspend = 0;
 #if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OLED_CMD_QHD_PT) \
 	|| defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OLED_VIDEO_WVGA_PT)
 	is_negativeMode_on();
